@@ -1,0 +1,9 @@
+.DS_Store
+data/
+models/market_value_model.pkl
+Premier-league-market-value-prediction/
+compress_model.py
+create_app_data.py
+test valutions.py
+__pycache__/
+*.pyc
