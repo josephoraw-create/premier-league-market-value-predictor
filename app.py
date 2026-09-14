@@ -10,7 +10,7 @@ import joblib
 
 @st.cache_resource
 def load_model():
-    return joblib.load("models/market_value_model.pkl")
+    return joblib.load("models/market_value_model_compressed.pkl")
 
 
 model = load_model()
@@ -673,7 +673,6 @@ if selection_mode == "Select Real Player":
                 "current_club_name"
             ]
         )
-        
 # ==========================================
 # ADVANCED FEATURES
 # ==========================================
