@@ -2,52 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+from datetime import date
 
 
-# ==========================================
-# LOAD MODEL
-# ==========================================
-
-@st.cache_resource
-def load_model():
-    return joblib.load("models/market_value_model_compressed.pkl")
-
-
-model = load_model()
-
-
-# ==========================================
-# LOAD DATA
-# ==========================================
-
-@st.cache_data
-def load_data():
-
-    players = pd.read_csv("data/players.csv")
-
-    appearances = pd.read_csv(
-        "data/appearances.csv"
-    )
-
-    players["date_of_birth"] = pd.to_datetime(
-        players["date_of_birth"],
-        errors="coerce"
-    )
-
-    appearances["date"] = pd.to_datetime(
-        appearances["date"],
-        errors="coerce"
-    )
-
-    return players, appearances
-
-
-players, appearances = load_data()
-
-
-# ==========================================
-# PAGE SETUP
-# ==========================================
+# --------------------------------------------------
+# PAGE SETTINGS
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="Premier League Market Value Predictor",
@@ -55,27 +15,63 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title(
-    "⚽ Premier League Market Value Predictor"
-)
+
+# --------------------------------------------------
+# LOAD MODEL
+# --------------------------------------------------
+
+@st.cache_resource
+def load_model():
+    return joblib.load(
+        "models/market_value_model_compressed.pkl"
+    )
+
+
+model = load_model()
+
+
+# --------------------------------------------------
+# LOAD PLAYER DATA
+# --------------------------------------------------
+
+@st.cache_data
+def load_data():
+    players = pd.read_csv("app_players.csv")
+
+    players["date_of_birth"] = pd.to_datetime(
+        players["date_of_birth"],
+        errors="coerce"
+    )
+
+    return players
+
+
+players = load_data()
+
+
+# --------------------------------------------------
+# TITLE
+# --------------------------------------------------
+
+st.title("⚽ Premier League Player Market Value Predictor")
 
 st.write(
-    "Estimate a player's next Transfermarkt market value "
-    "using their previous valuation and recent "
-    "Premier League performance."
+    """
+    Estimate a player's next Transfermarkt market value using their
+    previous market value, player profile and recent Premier League
+    performance.
+    """
 )
 
 st.divider()
 
 
-# ==========================================
-# PLAYER SELECTION
-# ==========================================
+# --------------------------------------------------
+# INPUT MODE
+# --------------------------------------------------
 
-st.subheader("🔎 Player Selection")
-
-selection_mode = st.radio(
-    "Input Method",
+input_mode = st.radio(
+    "Choose input method",
     [
         "Select Real Player",
         "Enter Player Manually"
@@ -84,294 +80,11 @@ selection_mode = st.radio(
 )
 
 
-selected_player = None
-
-if selection_mode == "Select Real Player":
-
-    player_names = (
-        players["name"]
-        .dropna()
-        .drop_duplicates()
-        .sort_values()
-        .tolist()
-    )
-
-    selected_name = st.selectbox(
-        "Search / Select Player",
-        player_names
-    )
-
-    selected_rows = players[
-        players["name"] == selected_name
-    ]
-
-    if not selected_rows.empty:
-        selected_player = selected_rows.iloc[0]
-
-
-# ==========================================
-# DEFAULT VALUES
-# ==========================================
-
-default_age = 24
-default_position = "Attack"
-default_sub_position = "Left Winger"
-default_foot = "right"
-default_height = 180
-default_caps = 0
-default_market_value = 20_000_000
-
-default_appearances = 25
-default_goals = 5
-default_assists = 5
-default_minutes = 2000
-default_yellow_cards = 3
-default_red_cards = 0
-
-
-# ==========================================
-# AUTO-FILL PLAYER PROFILE
-# ==========================================
-
-if selected_player is not None:
-
-    player_id = selected_player["player_id"]
-
-    # ------------------------------
-    # AGE
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["date_of_birth"]
-    ):
-
-        today = pd.Timestamp.today()
-
-        default_age = int(
-            (
-                today
-                - selected_player["date_of_birth"]
-            ).days / 365.25
-        )
-
-    # ------------------------------
-    # POSITION
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["position"]
-    ):
-        default_position = (
-            selected_player["position"]
-        )
-
-    # ------------------------------
-    # SUB POSITION
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["sub_position"]
-    ):
-        default_sub_position = (
-            selected_player["sub_position"]
-        )
-
-    # ------------------------------
-    # FOOT
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["foot"]
-    ):
-        default_foot = (
-            selected_player["foot"]
-        )
-
-    # ------------------------------
-    # HEIGHT
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["height_in_cm"]
-    ):
-
-        default_height = int(
-            selected_player["height_in_cm"]
-        )
-
-    # ------------------------------
-    # INTERNATIONAL CAPS
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["international_caps"]
-    ):
-
-        default_caps = int(
-            selected_player["international_caps"]
-        )
-
-    # ------------------------------
-    # CURRENT MARKET VALUE
-    # ------------------------------
-
-    if pd.notna(
-        selected_player["market_value_in_eur"]
-    ):
-
-        default_market_value = int(
-            selected_player[
-                "market_value_in_eur"
-            ]
-        )
-
-
-    # ======================================
-    # AUTO-CALCULATE LAST 365 DAYS
-    # ======================================
-
-    today = pd.Timestamp.today()
-
-    one_year_ago = (
-        today
-        - pd.Timedelta(days=365)
-    )
-
-    player_appearances = appearances[
-        (
-            appearances["player_id"]
-            == player_id
-        )
-        &
-        (
-            appearances["competition_id"]
-            == "GB1"
-        )
-        &
-        (
-            appearances["date"]
-            >= one_year_ago
-        )
-        &
-        (
-            appearances["date"]
-            <= today
-        )
-    ].copy()
-
-
-    # ------------------------------
-    # APPEARANCES
-    # ------------------------------
-
-    default_appearances = len(
-        player_appearances
-    )
-
-
-    # ------------------------------
-    # GOALS
-    # ------------------------------
-
-    if "goals" in player_appearances.columns:
-
-        default_goals = int(
-            player_appearances[
-                "goals"
-            ].fillna(0).sum()
-        )
-
-    else:
-        default_goals = 0
-
-
-    # ------------------------------
-    # ASSISTS
-    # ------------------------------
-
-    if "assists" in player_appearances.columns:
-
-        default_assists = int(
-            player_appearances[
-                "assists"
-            ].fillna(0).sum()
-        )
-
-    else:
-        default_assists = 0
-
-
-    # ------------------------------
-    # MINUTES
-    # ------------------------------
-
-    if (
-        "minutes_played"
-        in player_appearances.columns
-    ):
-
-        default_minutes = int(
-            player_appearances[
-                "minutes_played"
-            ].fillna(0).sum()
-        )
-
-    else:
-        default_minutes = 0
-
-
-    # ------------------------------
-    # YELLOW CARDS
-    # ------------------------------
-
-    if (
-        "yellow_cards"
-        in player_appearances.columns
-    ):
-
-        default_yellow_cards = int(
-            player_appearances[
-                "yellow_cards"
-            ].fillna(0).sum()
-        )
-
-    else:
-        default_yellow_cards = 0
-
-
-    # ------------------------------
-    # RED CARDS
-    # ------------------------------
-
-    if (
-        "red_cards"
-        in player_appearances.columns
-    ):
-
-        default_red_cards = int(
-            player_appearances[
-                "red_cards"
-            ].fillna(0).sum()
-        )
-
-    else:
-        default_red_cards = 0
-
-
-# ==========================================
+# --------------------------------------------------
 # POSITION OPTIONS
-# ==========================================
-
-position_options = [
-    "Goalkeeper",
-    "Defender",
-    "Midfield",
-    "Attack"
-]
-
+# --------------------------------------------------
 
 position_map = {
-
     "Goalkeeper": [
         "Goalkeeper"
     ],
@@ -399,44 +112,193 @@ position_map = {
 }
 
 
-# ==========================================
-# INPUT COLUMNS
-# ==========================================
+# --------------------------------------------------
+# DEFAULT VALUES
+# --------------------------------------------------
 
-left, right = st.columns(2)
+default_age = 25
+default_position = "Attack"
+default_sub_position = "Centre-Forward"
+default_foot = "right"
+default_height = 180
+default_caps = 0
+default_previous_value = 20_000_000
+
+default_appearances = 20
+default_goals = 5
+default_assists = 3
+default_minutes = 1500
+default_yellow_cards = 2
+default_red_cards = 0
+
+selected_player_name = None
+selected_club = None
 
 
-# ==========================================
-# PLAYER PROFILE
-# ==========================================
+# --------------------------------------------------
+# REAL PLAYER MODE
+# --------------------------------------------------
 
-with left:
+if input_mode == "Select Real Player":
 
-    st.subheader(
-        "👤 Player Profile"
+    player_options = players.copy()
+
+    player_options["display_name"] = (
+        player_options["name"].fillna("Unknown")
+        + " — "
+        + player_options["current_club_name"].fillna(
+            "Unknown Club"
+        )
     )
+
+    player_options = player_options.sort_values(
+        "display_name"
+    )
+
+    selected_display = st.selectbox(
+        "Select player",
+        player_options["display_name"].tolist()
+    )
+
+    selected_player = player_options[
+        player_options["display_name"]
+        == selected_display
+    ].iloc[0]
+
+    selected_player_name = selected_player["name"]
+    selected_club = selected_player["current_club_name"]
+
+    # ----------------------------------------------
+    # AGE
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["date_of_birth"]):
+
+        dob = selected_player["date_of_birth"]
+
+        today = pd.Timestamp.today()
+
+        calculated_age = int(
+            (today - dob).days / 365.25
+        )
+
+        default_age = calculated_age
+
+    # ----------------------------------------------
+    # POSITION
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["position"]):
+
+        player_position = str(
+            selected_player["position"]
+        )
+
+        if player_position in position_map:
+            default_position = player_position
+
+    if pd.notna(selected_player["sub_position"]):
+        default_sub_position = str(
+            selected_player["sub_position"]
+        )
+
+    # ----------------------------------------------
+    # FOOT
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["foot"]):
+        default_foot = str(
+            selected_player["foot"]
+        ).lower()
+
+    # ----------------------------------------------
+    # HEIGHT
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["height_in_cm"]):
+        default_height = int(
+            selected_player["height_in_cm"]
+        )
+
+    # ----------------------------------------------
+    # INTERNATIONAL CAPS
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["international_caps"]):
+        default_caps = int(
+            selected_player["international_caps"]
+        )
+
+    # ----------------------------------------------
+    # MARKET VALUE
+    # ----------------------------------------------
+
+    if pd.notna(selected_player["market_value_in_eur"]):
+        default_previous_value = int(
+            selected_player["market_value_in_eur"]
+        )
+
+    # ----------------------------------------------
+    # PRE-CALCULATED PERFORMANCE DATA
+    # ----------------------------------------------
+
+    default_appearances = int(
+        selected_player["appearances"]
+    )
+
+    default_goals = int(
+        selected_player["goals"]
+    )
+
+    default_assists = int(
+        selected_player["assists"]
+    )
+
+    default_minutes = int(
+        selected_player["minutes"]
+    )
+
+    default_yellow_cards = int(
+        selected_player["yellow_cards"]
+    )
+
+    default_red_cards = int(
+        selected_player["red_cards"]
+    )
+
+
+# --------------------------------------------------
+# INPUT COLUMNS
+# --------------------------------------------------
+
+left_column, right_column = st.columns(2)
+
+
+# --------------------------------------------------
+# PLAYER PROFILE
+# --------------------------------------------------
+
+with left_column:
+
+    st.subheader("👤 Player Profile")
 
     age = st.number_input(
         "Age",
-        min_value=16,
+        min_value=15,
         max_value=45,
-        value=max(
-            16,
-            min(
-                default_age,
-                45
-            )
-        )
+        value=int(default_age)
     )
 
-    position_index = (
-        position_options.index(
+    position_options = list(
+        position_map.keys()
+    )
+
+    try:
+        position_index = position_options.index(
             default_position
         )
-        if default_position
-        in position_options
-        else 3
-    )
+    except ValueError:
+        position_index = 0
 
     position = st.selectbox(
         "Position",
@@ -444,14 +306,11 @@ with left:
         index=position_index
     )
 
-    available_sub_positions = (
-        position_map[position]
-    )
+    available_sub_positions = position_map[
+        position
+    ]
 
-    if (
-        default_sub_position
-        in available_sub_positions
-    ):
+    if default_sub_position in available_sub_positions:
 
         sub_position_index = (
             available_sub_positions.index(
@@ -474,14 +333,12 @@ with left:
         "both"
     ]
 
-    foot_index = (
-        foot_options.index(
+    if default_foot in foot_options:
+        foot_index = foot_options.index(
             default_foot
         )
-        if default_foot
-        in foot_options
-        else 0
-    )
+    else:
+        foot_index = 0
 
     foot = st.selectbox(
         "Preferred Foot",
@@ -492,204 +349,93 @@ with left:
     height = st.number_input(
         "Height (cm)",
         min_value=150,
-        max_value=215,
-        value=max(
-            150,
-            min(
-                default_height,
-                215
-            )
-        )
+        max_value=220,
+        value=int(default_height)
     )
 
-    international_caps = (
-        st.number_input(
-            "International Caps",
-            min_value=0,
-            max_value=250,
-            value=max(
-                default_caps,
-                0
-            )
-        )
+    international_caps = st.number_input(
+        "International Caps",
+        min_value=0,
+        max_value=250,
+        value=int(default_caps)
     )
 
-    previous_market_value = (
-        st.number_input(
-            "Previous Market Value (€)",
-            min_value=100_000,
-            max_value=250_000_000,
-            value=max(
-                100_000,
-                min(
-                    default_market_value,
-                    250_000_000
-                )
-            ),
-            step=1_000_000
-        )
+    previous_market_value = st.number_input(
+        "Previous Market Value (€)",
+        min_value=0,
+        max_value=300_000_000,
+        value=int(default_previous_value),
+        step=500_000
     )
 
 
-# ==========================================
+# --------------------------------------------------
 # PERFORMANCE
-# ==========================================
+# --------------------------------------------------
 
-with right:
+with right_column:
 
-    st.subheader(
-        "📊 Last 12 Months"
-    )
+    st.subheader("📊 Recent Premier League Performance")
 
-    appearances_input = (
-        st.number_input(
-            "Premier League Appearances",
-            min_value=0,
-            max_value=60,
-            value=max(
-                default_appearances,
-                0
-            )
-        )
+    appearances = st.number_input(
+        "Appearances",
+        min_value=0,
+        max_value=60,
+        value=int(default_appearances)
     )
 
     goals = st.number_input(
         "Goals",
         min_value=0,
         max_value=60,
-        value=max(
-            default_goals,
-            0
-        )
+        value=int(default_goals)
     )
 
     assists = st.number_input(
         "Assists",
         min_value=0,
-        max_value=40,
-        value=max(
-            default_assists,
-            0
-        )
+        max_value=60,
+        value=int(default_assists)
     )
 
     minutes = st.number_input(
         "Minutes Played",
         min_value=0,
         max_value=5000,
-        value=max(
-            default_minutes,
-            0
-        )
+        value=int(default_minutes)
     )
 
-    yellow_cards = (
-        st.number_input(
-            "Yellow Cards",
-            min_value=0,
-            max_value=30,
-            value=max(
-                default_yellow_cards,
-                0
-            )
-        )
+    yellow_cards = st.number_input(
+        "Yellow Cards",
+        min_value=0,
+        max_value=30,
+        value=int(default_yellow_cards)
     )
 
     red_cards = st.number_input(
         "Red Cards",
         min_value=0,
         max_value=10,
-        value=max(
-            default_red_cards,
-            0
-        )
+        value=int(default_red_cards)
     )
 
 
-# ==========================================
-# SHOW AUTO-FILL MESSAGE
-# ==========================================
+st.divider()
 
-if selection_mode == "Select Real Player":
 
-    # ======================================
-    # CURRENT PREMIER LEAGUE PLAYERS
-    # ======================================
-
-    premier_league_players = players[
-        players[
-            "current_club_domestic_competition_id"
-        ] == "GB1"
-    ].copy()
-
-    premier_league_players = (
-        premier_league_players
-        .dropna(subset=["name"])
-        .drop_duplicates(subset=["player_id"])
-    )
-
-    # Create a nicer display name:
-    # Bukayo Saka — Arsenal FC
-    premier_league_players["display_name"] = (
-        premier_league_players["name"]
-        + " — "
-        + premier_league_players[
-            "current_club_name"
-        ].fillna("Unknown Club")
-    )
-
-    premier_league_players = (
-        premier_league_players
-        .sort_values("name")
-    )
-
-    selected_display_name = st.selectbox(
-        "Search / Select Premier League Player",
-        premier_league_players[
-            "display_name"
-        ].tolist()
-    )
-
-    selected_rows = (
-        premier_league_players[
-            premier_league_players[
-                "display_name"
-            ] == selected_display_name
-        ]
-    )
-
-    if not selected_rows.empty:
-
-        selected_player = (
-            selected_rows.iloc[0]
-        )
-
-        st.write(
-            f"**{selected_player['name']}**"
-        )
-
-        st.caption(
-            selected_player[
-                "current_club_name"
-            ]
-        )
-# ==========================================
-# ADVANCED FEATURES
-# ==========================================
+# --------------------------------------------------
+# DERIVED PERFORMANCE FEATURES
+# --------------------------------------------------
 
 if minutes > 0:
 
     goals_per_90 = (
-        goals
-        / minutes
-        * 90
-    )
+        goals / minutes
+    ) * 90
 
     assists_per_90 = (
-        assists
-        / minutes
-        * 90
-    )
+        assists / minutes
+    ) * 90
 
 else:
 
@@ -697,11 +443,10 @@ else:
     assists_per_90 = 0
 
 
-if appearances_input > 0:
+if appearances > 0:
 
     minutes_per_appearance = (
-        minutes
-        / appearances_input
+        minutes / appearances
     )
 
 else:
@@ -709,325 +454,265 @@ else:
     minutes_per_appearance = 0
 
 
-# ==========================================
-# VALIDATION
-# ==========================================
-
-valid_input = True
-
-
-if (
-    appearances_input == 0
-    and minutes > 0
-):
-
-    st.warning(
-        "⚠️ Minutes played should be 0 "
-        "if appearances are 0."
-    )
-
-    valid_input = False
-
-
-if appearances_input > 0:
-
-    if (
-        minutes
-        > appearances_input * 120
-    ):
-
-        st.warning(
-            "⚠️ The minutes entered look "
-            "unusually high for the number "
-            "of appearances."
-        )
-
-
-# ==========================================
-# CREATE INPUT DATA
-# ==========================================
-
-input_data = pd.DataFrame({
-
-    "age": [
-        age
-    ],
-
-    "position": [
-        position
-    ],
-
-    "sub_position": [
-        sub_position
-    ],
-
-    "foot": [
-        foot
-    ],
-
-    "height_in_cm": [
-        height
-    ],
-
-    "international_caps": [
-        international_caps
-    ],
-
-    "appearances": [
-        appearances_input
-    ],
-
-    "goals": [
-        goals
-    ],
-
-    "assists": [
-        assists
-    ],
-
-    "minutes": [
-        minutes
-    ],
-
-    "yellow_cards": [
-        yellow_cards
-    ],
-
-    "red_cards": [
-        red_cards
-    ],
-
-    "previous_market_value": [
-        previous_market_value
-    ],
-
-    "goals_per_90": [
-        goals_per_90
-    ],
-
-    "assists_per_90": [
-        assists_per_90
-    ],
-
-    "minutes_per_appearance": [
-        minutes_per_appearance
-    ]
-})
-
-
-# ==========================================
-# PREDICT
-# ==========================================
-
-st.divider()
-
+# --------------------------------------------------
+# PREDICTION
+# --------------------------------------------------
 
 if st.button(
-    "⚽ Predict Market Value",
+    "Predict Market Value",
     type="primary",
     use_container_width=True
 ):
 
-    if valid_input:
+    input_data = pd.DataFrame(
+        {
+            "age": [
+                age
+            ],
 
-        log_prediction = (
-            model.predict(
-                input_data
-            )[0]
-        )
+            "position": [
+                position
+            ],
 
-        predicted_value = (
-            np.expm1(
-                log_prediction
-            )
-        )
+            "sub_position": [
+                sub_position
+            ],
 
-        predicted_value = max(
-            predicted_value,
-            0
-        )
+            "foot": [
+                foot
+            ],
 
-        change = (
-            predicted_value
-            - previous_market_value
-        )
+            "height_in_cm": [
+                height
+            ],
+
+            "international_caps": [
+                international_caps
+            ],
+
+            "appearances": [
+                appearances
+            ],
+
+            "goals": [
+                goals
+            ],
+
+            "assists": [
+                assists
+            ],
+
+            "minutes": [
+                minutes
+            ],
+
+            "yellow_cards": [
+                yellow_cards
+            ],
+
+            "red_cards": [
+                red_cards
+            ],
+
+            "previous_market_value": [
+                previous_market_value
+            ],
+
+            "goals_per_90": [
+                goals_per_90
+            ],
+
+            "assists_per_90": [
+                assists_per_90
+            ],
+
+            "minutes_per_appearance": [
+                minutes_per_appearance
+            ]
+        }
+    )
+
+    # Model was trained using log market values
+    log_prediction = model.predict(
+        input_data
+    )[0]
+
+    predicted_value = np.expm1(
+        log_prediction
+    )
+
+    predicted_value = max(
+        predicted_value,
+        0
+    )
+
+    value_change = (
+        predicted_value
+        - previous_market_value
+    )
+
+    if previous_market_value > 0:
 
         percentage_change = (
-            change
+            value_change
             / previous_market_value
-            * 100
+        ) * 100
+
+    else:
+
+        percentage_change = 0
+
+
+    # --------------------------------------------------
+    # RESULT
+    # --------------------------------------------------
+
+    st.subheader("💰 Prediction")
+
+    if selected_player_name:
+
+        st.write(
+            f"### {selected_player_name}"
         )
 
-
-        # ==================================
-        # RESULTS
-        # ==================================
-
-        st.header(
-            "💰 Prediction"
-        )
-
-        col1, col2, col3 = (
-            st.columns(3)
-        )
-
-        with col1:
-
-            st.metric(
-                "Previous Value",
-                f"€{previous_market_value:,.0f}"
-            )
-
-        with col2:
-
-            st.metric(
-                "Predicted Value",
-                f"€{predicted_value:,.0f}",
-                f"{percentage_change:+.1f}%"
-            )
-
-        with col3:
-
-            st.metric(
-                "Estimated Change",
-                f"€{change:+,.0f}"
+        if pd.notna(selected_club):
+            st.caption(
+                selected_club
             )
 
 
-        # ==================================
-        # CHART
-        # ==================================
+    result_col1, result_col2, result_col3 = (
+        st.columns(3)
+    )
 
-        st.subheader(
-            "Market Value Comparison"
+
+    with result_col1:
+
+        st.metric(
+            "Previous Market Value",
+            f"€{previous_market_value:,.0f}"
         )
 
-        chart_data = pd.DataFrame(
-            {
-                "Market Value (€)": [
-                    previous_market_value,
-                    predicted_value
-                ]
-            },
-            index=[
-                "Previous Value",
-                "Predicted Value"
+
+    with result_col2:
+
+        st.metric(
+            "Predicted Market Value",
+            f"€{predicted_value:,.0f}"
+        )
+
+
+    with result_col3:
+
+        st.metric(
+            "Estimated Change",
+            f"€{value_change:,.0f}",
+            f"{percentage_change:+.1f}%"
+        )
+
+
+    # --------------------------------------------------
+    # COMPARISON CHART
+    # --------------------------------------------------
+
+    st.subheader("Market Value Comparison")
+
+    chart_data = pd.DataFrame(
+        {
+            "Market Value (€)": [
+                previous_market_value,
+                predicted_value
             ]
-        )
+        },
+        index=[
+            "Previous Value",
+            "Predicted Value"
+        ]
+    )
 
-        st.bar_chart(
-            chart_data
-        )
-
-
-        # ==================================
-        # PERFORMANCE SUMMARY
-        # ==================================
-
-        st.subheader(
-            "Player Performance"
-        )
-
-        stat1, stat2, stat3, stat4 = (
-            st.columns(4)
-        )
-
-        stat1.metric(
-            "Goals / 90",
-            f"{goals_per_90:.2f}"
-        )
-
-        stat2.metric(
-            "Assists / 90",
-            f"{assists_per_90:.2f}"
-        )
-
-        stat3.metric(
-            "Minutes / Appearance",
-            f"{minutes_per_appearance:.0f}"
-        )
-
-        stat4.metric(
-            "International Caps",
-            international_caps
-        )
+    st.bar_chart(
+        chart_data
+    )
 
 
-        if selected_player is not None:
+    # --------------------------------------------------
+    # PERFORMANCE SUMMARY
+    # --------------------------------------------------
 
-            st.success(
-                f"Prediction generated for "
-                f"{selected_player['name']}."
-            )
+    st.subheader(
+        "Performance Summary"
+    )
 
-
-        st.caption(
-            "This model estimates a future "
-            "Transfermarkt-style market valuation. "
-            "It does not predict an actual transfer fee."
-        )
+    stat1, stat2, stat3, stat4 = (
+        st.columns(4)
+    )
 
 
-# ==========================================
+    stat1.metric(
+        "Goals / 90",
+        f"{goals_per_90:.2f}"
+    )
+
+    stat2.metric(
+        "Assists / 90",
+        f"{assists_per_90:.2f}"
+    )
+
+    stat3.metric(
+        "Minutes / Appearance",
+        f"{minutes_per_appearance:.0f}"
+    )
+
+    stat4.metric(
+        "International Caps",
+        international_caps
+    )
+
+
+# --------------------------------------------------
 # MODEL INFORMATION
-# ==========================================
+# --------------------------------------------------
 
 st.divider()
 
-
 with st.expander(
-    "🧠 About the Machine Learning Model"
+    "🤖 About the Model"
 ):
 
     st.write(
         """
-        The model uses Random Forest regression
-        trained on historical Premier League
-        valuations and player performance.
+        The prediction model is a Random Forest regression
+        model trained using historical Transfermarkt
+        Premier League player valuations.
 
-        The recent performance features are based
-        on the player's Premier League appearances
-        during the previous 365 days.
-
-        Important inputs include:
+        The model predicts a player's next Transfermarkt
+        market valuation using:
 
         - Previous market value
         - Age
         - Position
         - Preferred foot
         - Height
-        - International caps
+        - International experience
         - Premier League appearances
         - Goals
         - Assists
         - Minutes played
+        - Disciplinary record
         - Goals per 90
         - Assists per 90
-        - Discipline
+        - Minutes per appearance
         """
     )
 
-    metric1, metric2, metric3 = (
-        st.columns(3)
-    )
-
-    metric1.metric(
-        "Test MAE",
-        "€2.43m"
-    )
-
-    metric2.metric(
-        "Test RMSE",
-        "€4.18m"
-    )
-
-    metric3.metric(
-        "Test R²",
-        "0.962"
-    )
+    st.write("**Test-set performance:**")
 
     st.write(
-        "**Naive baseline MAE:** €2.80m"
+        """
+        - MAE: €2.43 million
+        - RMSE: €4.18 million
+        - R²: 0.962
+        """
     )
 
 
@@ -1037,22 +722,20 @@ with st.expander(
 
     st.write(
         """
-        Previous market value is currently the
-        most influential feature in the model.
+        This model predicts Transfermarkt market valuations,
+        not actual transfer fees.
 
-        The model performs particularly well when
-        valuations change gradually, but sudden
-        rises and falls are harder to predict.
+        Previous market value is the strongest predictor,
+        meaning the model performs best when player values
+        change gradually.
 
-        Performance data currently includes only
-        Premier League appearances. A new signing
-        from another league may therefore have
-        little or no recent performance data in
-        this application.
+        Sudden rises or falls caused by breakout performances,
+        injuries, transfers, contract situations or other
+        external factors can be harder for the model to
+        predict.
 
-        Transfermarkt market values are estimates
-        and should not be treated as actual transfer
-        fees.
+        Performance statistics used for real players are
+        based on the Premier League data available when
+        app_players.csv was generated.
         """
     )
-    
